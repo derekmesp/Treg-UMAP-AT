@@ -1,8 +1,9 @@
-import flowkit as fk 
+import flowkit as fk
 import pandas as pd
 import scanpy as sc
 import matplotlib.pyplot as plt
-import re 
+import re
+
 
 def read_flow(wsp_directory, fcs_directory, gate):
     """
@@ -32,9 +33,9 @@ def read_flow(wsp_directory, fcs_directory, gate):
     """
 
     wsp = fk.Workspace(wsp_directory, fcs_directory)
-    wsp.analyze_samples(group_name= 'All Samples', verbose=False, use_mp=False)
+    wsp.analyze_samples(group_name='All Samples', verbose=False, use_mp=False)
     sample_list = wsp.get_sample_ids(group_name='All Samples')
-    
+
     df_flow = []
     for sample_id in sample_list:
         df = wsp.get_gate_events(sample_id, gate)
@@ -42,7 +43,7 @@ def read_flow(wsp_directory, fcs_directory, gate):
         df['tissue'] = (sample_id.split(' ')[2])
         df['condition'] = (sample_id.split(' ')[3])
         df_flow.append(df)
-    
+
     df_flow = pd.concat(df_flow)
 
     new_cols = []
@@ -56,6 +57,7 @@ def read_flow(wsp_directory, fcs_directory, gate):
     df_flow.columns = new_cols
     print('Parameters:', df_flow.keys())
     return df_flow, sample_list, wsp
+
 
 def pd_to_adata(df_flow, df_flow_counts):
     """
@@ -85,9 +87,9 @@ def pd_to_adata(df_flow, df_flow_counts):
     if df_flow.isna().any().any():
         nan_cols = df_flow.columns[df_flow.isna().any()].tolist()
         raise ValueError(
-        f"NaN values detected in df_flow columns: {nan_cols}"
+            f"NaN values detected in df_flow columns: {nan_cols}"
         )
-        
+
     df_flow['sample_id'] = df_flow['sample_id'].apply(lambda x: x[:4])
     list_metadata = {
         'group': df_flow.condition,
@@ -101,5 +103,5 @@ def pd_to_adata(df_flow, df_flow_counts):
 
     for col in df_metadata.columns:
         adata.obs[col] = df_metadata[col]
-    
+
     return adata
