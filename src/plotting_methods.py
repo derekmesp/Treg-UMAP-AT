@@ -186,16 +186,16 @@ def population_boxplot(df, split, annotate=True, subset=None, plot_donors=False)
 
     df_plot = df.reset_index(drop=True)
 
-    if subset != None:
-        matching_cols = [
-            col for col in df_plot.columns if df_plot[col].isin(subset).any()]
+    if subset is not None:
+        matching_cols = [col for col in df_plot.columns if set(subset).issubset(
+            set(df_plot[col].dropna().unique()))]
 
         if matching_cols:
             matched_column = matching_cols[0]
             df_plot = df_plot[df_plot[matched_column].isin(subset)]
         else:
             logging.error(
-                f"None of the DataFrame columns contain values from the subset: {subset}")
+                f"No DataFrame column contains all subset values: {subset}")
 
     pop_order = df_plot.groupby(split)[
         'RTL'].median().sort_values(ascending=False).index
