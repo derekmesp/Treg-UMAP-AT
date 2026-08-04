@@ -1,9 +1,12 @@
 from itertools import combinations
+import logging
 
 import matplotlib.pyplot as plt
 import scanpy as sc
 import seaborn as sns
 from statannotations.Annotator import Annotator
+
+logging.basicConfig(level=logging.INFO)
 
 custom_palette = {
     'SPL': '#e41a1c',
@@ -59,7 +62,9 @@ def annotated_umap(adata, tissue_type, sample_name, obs):
 
 def RTL_boxplot(df, population_name, annotate=True):
     """
-    Creates a boxplot with overlaid stripplot and pointplot for RTL values across different tissues
+    Creates a boxplot with overlaid stripplot and pointplot for RTL values across different tissue
+    types within a specified population.
+
     Parameters
     ----------
     df : pandas.DataFrame
@@ -76,6 +81,7 @@ def RTL_boxplot(df, population_name, annotate=True):
         The function displays the boxplot but does not return any value.
     """
 
+    df = df.reset_index(drop=True)
     fig, ax = plt.subplots(figsize=(6, 5))
 
     sns.stripplot(
@@ -113,19 +119,38 @@ def RTL_boxplot(df, population_name, annotate=True):
     )
 
     if annotate:
-        pairs = list(combinations(df.Tissue.unique(), 2))
 
-        annotator = Annotator(ax, pairs, data=df,
-                              x='Tissue', y='RTL', order=df.Tissue.unique())
-        annotator.configure(
-            test='Mann-Whitney',
-            text_format='star',
-            loc='inside',
-            comparisons_correction='bonferroni',
-            line_width=1.2,
-            hide_non_significant=True
-        )
-        annotator.apply_and_annotate()
+        tissue_counts = df['Tissue'].value_counts()
+        valid_tissues = tissue_counts[tissue_counts >= 2].index.tolist()
+
+        if len(valid_tissues) >= 2:
+            pairs = list(combinations(valid_tissues, 2))
+
+            annotator = Annotator(ax, pairs, data=df,
+                                  x='Tissue', y='RTL', order=df.Tissue.unique())
+            annotator.configure(
+                test='Mann-Whitney',
+                text_format='star',
+                loc='inside',
+                comparisons_correction='bonferroni',
+                line_width=1.2,
+                hide_non_significant=True,
+                verbose=False
+            )
+
+            try:
+                annotator.apply_and_annotate()
+            except Exception as e:
+                logging.warning(
+                    f"Skipping statistical annotations for {population_name} due to an internal error: {e}")
+        else:
+            print(
+                f"Skipping statistical annotation for {population_name}: Insufficient sample counts across tissue groups.")
+
+    outlier_donors = df[df.groupby('Population')['RTL'].transform(
+        lambda x: (x - x.mean()).abs() > 2 * x.std())]['Donor'].unique()
+    logging.info(
+        f"Outlier donors detected: {', '.join(str(d) for d in outlier_donors)}")
 
     plt.xticks(fontsize=12)
     plt.yticks(fontsize=10)
@@ -136,7 +161,7 @@ def RTL_boxplot(df, population_name, annotate=True):
     plt.show()
 
 
-def population_boxplot(df, annotate=True):
+def population_boxplot(df, split, annotate=True, subset=None, plot_donors=False):
     """
     Creates a boxplot with overlaid stripplot and pointplot for RTL values across different populations.
 
@@ -144,28 +169,46 @@ def population_boxplot(df, annotate=True):
     ----------
     df : pandas.DataFrame
         DataFrame containing the data to be plotted. Must include 'Population' and 'RTL' columns.
+    split : str
+        The name of the column in df to split the data by (e.g., 'Population', 'Age group').
     annotate : bool, optional
         If True, statistical annotations will be added to the plot. Default is True.
+    subset : list, optional
+        A list of specific values in the split column to include in the plot. If None, all values are included.
+    plot_donors : bool, optional
+        If True, donor IDs will be annotated next to their corresponding data points. Default is False.
 
     Returns
     -------
     None
         The function displays the boxplot but does not return any value.
     """
+
     df_plot = df.reset_index(drop=True)
 
-    pop_order = df_plot.groupby('Population')[
+    if subset != None:
+        matching_cols = [
+            col for col in df_plot.columns if df_plot[col].isin(subset).any()]
+
+        if matching_cols:
+            matched_column = matching_cols[0]
+            df_plot = df_plot[df_plot[matched_column].isin(subset)]
+        else:
+            logging.error(
+                f"None of the DataFrame columns contain values from the subset: {subset}")
+
+    pop_order = df_plot.groupby(split)[
         'RTL'].median().sort_values(ascending=False).index
 
     fig, ax = plt.subplots(figsize=(16, 12))
 
     sns.stripplot(
-        x='Population', y='RTL', data=df_plot, order=pop_order,
-        hue='Population', legend=False,
+        x=split, y='RTL', data=df_plot, order=pop_order,
+        hue=split, legend=False,
         jitter=True, size=5, edgecolor='black', linewidth=0.5, ax=ax
     )
     sns.lineplot(
-        x='Population', y='RTL', data=df_plot,
+        x=split, y='RTL', data=df_plot,
         units='Donor',
         estimator=None,
         color='black',
@@ -175,12 +218,12 @@ def population_boxplot(df, annotate=True):
     )
 
     sns.boxplot(
-        x='Population', y='RTL', data=df_plot, order=pop_order,
-        hue='Population', dodge=False, boxprops=dict(alpha=0.5), ax=ax
+        x=split, y='RTL', data=df_plot, order=pop_order,
+        hue=split, dodge=False, boxprops=dict(alpha=0.5), ax=ax
     )
 
     sns.pointplot(
-        x='Population', y='RTL', data=df_plot, order=pop_order, color='black',
+        x=split, y='RTL', data=df_plot, order=pop_order, color='black',
         errorbar='sd', linestyle='none', markers='_',
         err_kws={'linewidth': 1.2}, markersize=12, linewidth=2.0, ax=ax
     )
@@ -189,21 +232,124 @@ def population_boxplot(df, annotate=True):
         pairs = list(combinations(pop_order, 2))
 
         annotator = Annotator(ax, pairs, data=df_plot,
-                              x='Population', y='RTL', order=pop_order)
+                              x=split, y='RTL', order=pop_order)
         annotator.configure(
             test='Mann-Whitney',
             text_format='star',
             loc='inside',
             comparisons_correction='bonferroni',
             line_width=1.2,
-            hide_non_significant=True
+            hide_non_significant=True,
+            verbose=False
         )
-        annotator.apply_and_annotate()
+        _, annotations = annotator.apply_and_annotate()
+
+        for ann in annotations:
+            stat_res = ann.data
+            if stat_res.pvalue is not None and stat_res.pvalue < 0.05:
+                group1 = stat_res.group1
+                group2 = stat_res.group2
+
+                logging.info(
+                    f"Significant difference between {group1} and {group2} "
+                    f"({stat_res.test_short_name}, corrected p-val: {stat_res.pvalue:.4e})"
+                )
+
+    outlier_donors = df_plot[df_plot.groupby(split)['RTL'].transform(
+        lambda x: (x - x.mean()).abs() > 2 * x.std())]['Donor'].unique()
+    if len(outlier_donors) > 0:
+        logging.info(
+            f"Outlier donors detected: {', '.join(str(d) for d in outlier_donors)}")
+
+    if plot_donors:
+        cat_to_idx = {cat: i for i, cat in enumerate(pop_order)}
+        stripplot_collections = [
+            c for c in ax.collections if hasattr(c, 'get_offsets')]
+
+        if stripplot_collections:
+            all_dots = []
+            for col in stripplot_collections:
+                all_dots.extend(col.get_offsets())
+
+            df_text = df_plot.copy()
+            df_text['sort_cat'] = df_text[split].map(cat_to_idx)
+            df_text = df_text.sort_values(
+                by=['sort_cat', 'RTL']).reset_index(drop=True)
+
+            for idx, row in df_text.iterrows():
+                if idx < len(all_dots):
+                    dot_x, dot_y = all_dots[idx]
+
+                    ax.text(
+                        x=dot_x + 0.03,
+                        y=dot_y,
+                        s=str(row["Donor"]),
+                        fontsize=8,
+                        color="black",
+                        alpha=0.7,
+                        va="center",
+                        ha="left"
+                    )
+        else:
+            for idx, row in df_plot.iterrows():
+                x_position = cat_to_idx[row[split]]
+                ax.text(
+                    x=x_position + 0.15,
+                    y=row["RTL"],
+                    s=str(row["Donor"]),
+                    fontsize=8,
+                    color="black",
+                    alpha=0.7,
+                    va="center"
+                )
 
     plt.xticks(rotation=90, ha='center', fontsize=10)
     plt.yticks(fontsize=10)
-    plt.title("RTL Comparison Across Populations", fontsize=14, pad=15)
+    plt.title("{} RTL Comparison Across {}".format(", ".join(subset) if subset is not None else "",
+                                                   split), fontsize=14, pad=15)
     sns.despine()
 
     plt.tight_layout()
+    plt.show()
+
+
+def age_RTL_plot(df, key):
+    """
+    Creates a scatter plot of RTL values against age.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        DataFrame containing the data to be plotted. Must include 'Age' and 'RTL' columns.
+    key : str
+        A string used in the plot title to indicate the specific subset or condition being visualized.
+
+    Returns
+    -------
+    None
+        The function displays the scatter plot but does not return any value.
+    """
+    fig, ax = plt.subplots(figsize=(7, 5))
+    sns.scatterplot(
+        x='Age', y='RTL', data=df,
+        palette=custom_palette, hue='Tissue', s=60, edgecolor='black', linewidth=0.5
+    )
+
+    for idx, row in df.iterrows():
+        ax.text(
+            x=row["Age"] + 0.2,
+            y=row["RTL"],
+            s=str(row["Donor"]),
+            fontsize=9,
+            color="black",
+            alpha=0.8,
+            va="center"
+        )
+    plt.plot(df['Age'], df['RTL'], marker='o',
+             zorder=0, color='gray', alpha=0.5)
+
+    sns.despine()
+    plt.tight_layout()
+    plt.grid()
+    plt.title("RTL vs Age for {}".format(key), fontsize=14, pad=15)
     plt.show()
