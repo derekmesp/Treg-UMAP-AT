@@ -186,9 +186,11 @@ def population_boxplot(df, split, annotate=True, subset=None, plot_donors=False)
 
     df_plot = df.reset_index(drop=True)
 
-    if subset != None:
+    if subset is not None:
         matching_cols = [
-            col for col in df_plot.columns if df_plot[col].isin(subset).any()]
+            col for col in df_plot.columns
+            if set(subset).issubset(set(df_plot[col].dropna().unique()))
+        ]
 
         if matching_cols:
             matched_column = matching_cols[0]
@@ -290,6 +292,8 @@ def population_boxplot(df, split, annotate=True, subset=None, plot_donors=False)
                         va="center",
                         ha="left"
                     )
+            logging.info(
+                f"Annotated donor IDs for {len(df_text)} data points in the plot.")
         else:
             for idx, row in df_plot.iterrows():
                 x_position = cat_to_idx[row[split]]

@@ -137,9 +137,13 @@ def clean_encoder_map(reg_model):
     pandas.DataFrame
         A DataFrame containing the original categorical values and their corresponding encoded values for each feature.
     """
+    try:
+        preprocess_step = reg_model.named_steps['preprocess']
+        target_encoder = preprocess_step.named_transformers_['cat']
+    except AttributeError as e:
+        logging.error(
+            f"Error occurred while extracting encoder information: {e}")
 
-    preprocess_step = reg_model.named_steps['preprocess']
-    target_encoder = preprocess_step.named_transformers_['cat']
     features = ['Tissue', 'Population']
 
     for i, feature in enumerate(features):
